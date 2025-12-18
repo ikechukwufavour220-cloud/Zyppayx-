@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zyppayx – Earn Online</title>
+<style>
+  body { font-family:'Segoe UI',sans-serif; background:#f4f6fa; padding:15px; color:#333; }
+  h2 { text-align:center; margin-bottom:20px; }
+  .card { background:#fff; border-radius:12px; box-shadow:0 4px 12px rgba(0,0,0,0.06); padding:15px; margin-bottom:15px; }
+  input, button { width:100%; padding:12px; margin:8px 0; border-radius:8px; }
+  button { cursor:pointer; border:none; font-weight:bold; background:#5c6bc0; color:#fff; }
+  button:hover { opacity:0.9; }
+  .task { border-left:4px solid #5c6bc0; margin-bottom:15px; }
+  small { font-size:12px; word-break:break-all; color:#555; }
+  #balanceBox { display:flex; justify-content:space-between; align-items:center; background:#5c6bc0; color:#fff; padding:12px 20px; border-radius:12px; margin-bottom:15px; font-weight:bold; }
+</style>
+</head>
+<body>
+
+<h2>Zyppayx – Earn Online</h2>
+
+<!-- AUTH -->
+<div id="authBox" class="card">
+  <h3>Welcome</h3>
+  <input id="email" type="email" placeholder="Email">
+  <input id="password" type="password" placeholder="Password">
+  <button onclick="signup()">Sign Up</button>
+  <button onclick="login()">Login</button>
+  <p id="msg" style="text-align:center; margin-top:10px;"></p>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard" style="display:none">
+
+  <!-- Balance & Referral -->
+  <div id="balanceBox">
+    <span>Balance: ₦<span id="balance">0</span></span>
+    <span>Your referral link:<br><small id="refLink"></small></span>
+  </div>
+
+  <!-- Withdraw -->
+  <div class="card">
+    <h3>Withdraw</h3>
+    <input id="withdrawAmount" placeholder="Amount (₦500 min)">
+    <button onclick="requestWithdrawal()">Request Withdrawal</button>
+  </div>
+
+  <!-- Tasks -->
+  <div class="card">
+    <h3>Available Tasks</h3>
+    <div id="tasks"></div>
+  </div>
+
+  <!-- Stats -->
+  <div class="card">
+    <h3>Your Stats</h3>
+    <p>Balance: ₦<span id="statBalance">0</span></p>
+    <p>Total Referrals: <span id="statReferrals">0</span></p>
+    <p>Tasks Completed: <span id="statTasks">0</span></p>
+  </div>
+
+  <!-- Leaderboard -->
+  <div class="card">
+    <h3>Referral Leaderboard</h3>
+    <ol id="leaderboardList"></ol>
+    <p>Your Rank: <span id="yourRank">-</span></p>
+  </div>
+
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import {
+  getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import {
+  getFirestore, doc, setDoc, getDoc, collection, getDocs, addDoc, updateDoc, increment
+} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+/* Firebase Config */
+const firebaseConfig = {
+  apiKey: "AIzaSyCQ8TCMUAySwLSBN3-0W1GV4XWateS1rqQ",
+  authDomain: "zyppayx-69c54.firebaseapp.com",
+  projectId: "zyppayx-69c54",
+  storageBucket: "zyppayx-69c54.firebasestorage.app",
+  messagingSenderId: "439535581166",
+  appId: "1:439535581166:web:951f58aadf9b2432ef00ff"
+};
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+/* Referral from URL */
+function getReferral(){ return new URLSearchParams(window.location.search).get("ref"); }
+
+/* SIGNUP */
+window.signup = async () => {
+  try {
+    const res = await createUserWithEmailAndPassword(auth,email.value,password.value);
+    await setDoc(doc(db,"users",res.user.uid),{
+      email: res.user.email,
+      balance:0,
+      referrals:0,
+      referredBy:getReferral()||null,
+      joinedAt:new Date()
+    });
+    msg.innerText = "Signup successful!";
+  } catch(e){ alert(e.message); }
+};
+
+/* LOGIN */
+window.login = async () => {
+  try { await signInWithEmailAndPassword(auth,email.value,password.value); }
+  catch(e){ alert(e.message); }
+};
+
+/* AUTH STATE CHANGE */
+onAuthStateChanged(auth, async (user)=>{
+  if(!user) return;
+  document.getElementById("authBox").style.display="none";
+  document.getElementById("dashboard").style.display="block";
+
+  const u = await getDoc(doc(db,"users",user.uid));
+  document.getElementById("balance").innerText = u.data().balance || 0;
+  document.getElementById("refLink").innerText = `${location.origin}?ref=${user.uid}`;
+
+  loadTasks();
+  loadStatsAndLeaderboard();
+});
+
+/* LOAD TASKS */
+async function loadTasks() {
+  const tasksEl = document.getElementById("tasks");
+  tasksEl.innerHTML="";
+  const snap = await getDocs(collection(db,"tasks"));
+  snap.forEach(d=>{
+    const t=d.data();
+    if(t.status!=="active") return;
+    tasksEl.innerHTML+=`
+      <div class="task card">
+        <h4>${t.title}</h4>
+        <p>${t.description}</p>
+        <b>₦${t.reward}</b>
+        <button onclick="submitTask('${d.id}')">Submit Task</button>
+      </div>
+    `;
+  });
+}
+
+/* SUBMIT TASK */
+window.submitTask = async (taskId) => {
+  const proof = prompt("Paste proof link");
+  if(!proof) return;
+  await addDoc(collection(db,"submissions"), { userId:auth.currentUser.uid, taskId, proof, status:"pending", submittedAt:new Date() });
+  alert("Task submitted!");
+};
+
+/* WITHDRAW */
+window.requestWithdrawal = async () => {
+  const amount = Number(document.getElementById("withdrawAmount").value);
+  if(amount<500){ alert("Minimum withdrawal is ₦500"); return; }
+  await addDoc(collection(db,"withdrawals"), { userId:auth.currentUser.uid, amount, status:"pending", requestedAt:new Date() });
+  alert("Withdrawal request sent!");
+};
+
+/* STATS & LEADERBOARD */
+async function loadStatsAndLeaderboard() {
+  const userId = auth.currentUser.uid;
+
+  // User stats
+  const userDoc = await getDoc(doc(db,"users",userId));
+  const userData = userDoc.data();
+  document.getElementById("statBalance").innerText = userData.balance||0;
+  document.getElementById("statReferrals").innerText = userData.referrals||0;
+
+  // Tasks completed
+  const submissionsSnap = await getDocs(collection(db,"submissions"));
+  let completed = 0;
+  submissionsSnap.forEach(d=>{
+    const s=d.data();
+    if(s.userId===userId && s.status==="approved") completed++;
+  });
+  document.getElementById("statTasks").innerText = completed;
+
+  // Leaderboard
+  const usersSnap = await getDocs(collection(db,"users"));
+  const usersArr = [];
+  usersSnap.forEach(d=>{
+    const u=d.data();
+    usersArr.push({email:u.email, referrals:u.referrals||0, id:d.id});
+  });
+  usersArr.sort((a,b)=>b.referrals - a.referrals);
+
+  const leaderboardEl = document.getElementById("leaderboardList");
+  leaderboardEl.innerHTML="";
+  let rank=0;
+  usersArr.forEach((u,i)=>{
+    leaderboardEl.innerHTML+=`<li>${u.email} - ${u.referrals} referrals</li>`;
+    if(u.id===userId) rank=i+1;
+  });
+  document.getElementById("yourRank").innerText=rank;
+}
+</script>
+
+</body>
+</html>
